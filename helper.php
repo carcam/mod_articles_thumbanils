@@ -61,6 +61,12 @@ class modarticlesthumbnailsHelper
 				$model->setState('filter.category_id', $categoryId);
 				break;
 			case 'tags':
+				$articleIds = self::getByTag($id);
+
+				if (count($articleIds))
+				{
+					$model->setState('filter.article_id', $articleIds);
+				}
 				break;
 			case 'keywords':
 				$articleIds = self::getByKeyword($id);
@@ -71,6 +77,13 @@ class modarticlesthumbnailsHelper
 				}
 				break;
 			case 'title':
+				$articleIds = self::getByTitle($id);
+
+				if (count($articleIds))
+				{
+					$model->setState('filter.article_id', $articleIds);
+				}
+				break;
 				break;
 		}
 
@@ -162,8 +175,75 @@ class modarticlesthumbnailsHelper
 		}
 
 		return $catId;
-
 	}
+
+	/**
+	 * Get current Article Category
+	 *
+	 * @param	integer	$id	Article id
+	 *
+	 * @return	integer	Category id
+	 */
+	public static function getByTitle($id)
+	{
+		$db = JFactory::getDbo();
+
+		$query = $db->getQuery(true);
+
+		// Select the meta keywords from the item
+		$query->select('title')
+			->from('#__content')
+			->where('id = ' . (int) $id);
+		$db->setQuery($query);
+
+		try
+		{
+			$catId = $db->loadResult();
+		}
+		catch (RuntimeException $e)
+		{
+			JFactory::getApplication()->enqueueMessage(JText::_('MOD_ARTICLE_THUMBNAILS_AN_ERROR_HAS_OCCURRED'), 'error');
+
+			$catId = 0;
+		}
+
+		return $catId;
+	}
+
+	/**
+	 * Get related articles by Tags
+	 *
+	 * @param integer $id	Article id
+	 *
+	 * @return	array	Array of articles
+	 */
+	public static function getByTag($id)
+	{
+		$db = JFactory::getDbo();
+
+		$query = $db->getQuery(true);
+
+		// Get tags from the item
+		$query->select('tag_id')
+			->from('#__contentitem_tag_map AS tm')
+			->where('tm.content_item_id = ' . (int) $id);
+		$query->join('inner', '#__tags AS t ON t.id = tm.tag_id')
+			->where('t.published = 1 AND t.access = 1');
+		$db->setQuery($query);
+
+		try
+		{
+			$tagIds = $db->loadColumn();
+		}
+		catch (RuntimeException $e)
+		{
+			JFactory::getApplication()->enqueueMessage(JText::_('MOD_ARTICLE_THUMBNAILS_AN_ERROR_HAS_OCCURRED'), 'error');
+
+			$tagIds = array();
+		}
+
+		return $tagIds;
+	}	
 
 	/**
 	 * Get related articles by Keyword

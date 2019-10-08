@@ -11,6 +11,8 @@
 // no direct access
 defined('_JEXEC') or die;
 
+use Joomla\CMS\Factory;
+
 JLoader::register('ContentHelperRoute', JPATH_SITE . '/components/com_content/helpers/route.php');
 JModelLegacy::addIncludePath(JPATH_SITE . '/components/com_content/models', 'ContentModel');
 
@@ -69,7 +71,7 @@ class modarticlesthumbnailsHelper
 				}
 				break;
 			case 'keywords':
-				$articleIds = self::getByKeyword($id);
+				$articleIds = self::getByKeyword($id, $params);
 
 				if (count($articleIds))
 				{
@@ -190,7 +192,7 @@ class modarticlesthumbnailsHelper
 
 		$query = $db->getQuery(true);
 
-		// Select the meta keywords from the item
+		// Get title words
 		$query->select('title')
 			->from('#__content')
 			->where('id = ' . (int) $id);
@@ -219,16 +221,24 @@ class modarticlesthumbnailsHelper
 	 */
 	public static function getByTag($id)
 	{
+		$user = Factory::getUser();
+		$access = $user->getAuthorisedViewLevels();
+
 		$db = JFactory::getDbo();
+
+		$nullDate = $db->getNullDate();
+		$now = time();
 
 		$query = $db->getQuery(true);
 
 		// Get tags from the item
-		$query->select('tag_id')
+		$query->select('tm.content_item_id')
 			->from('#__contentitem_tag_map AS tm')
-			->where('tm.content_item_id = ' . (int) $id);
+			->where('tm.tag_id IN (SELECT tag_id FROM rzrmq_contentitem_tag_map WHERE content_item_id = ' . (int) $id . ')');
 		$query->join('inner', '#__tags AS t ON t.id = tm.tag_id')
-			->where('t.published = 1 AND t.access = 1');
+			->where('t.published = 1')
+			->where('t.access IN (' . implode(',', $access) . ')')
+			->where('(t.publish_up = ' . $db->quote($nullDate) . ' OR t.publish_up >= ' . $db->quote($now) . ')');
 		$db->setQuery($query);
 
 		try
@@ -243,7 +253,7 @@ class modarticlesthumbnailsHelper
 		}
 
 		return $tagIds;
-	}	
+	}
 
 	/**
 	 * Get related articles by Keyword
@@ -252,9 +262,16 @@ class modarticlesthumbnailsHelper
 	 *
 	 * @return	array	Array of articles
 	 */
-	public static function getByKeyword($id)
+	public static function getByKeyword($id, $params)
 	{
-		$db = JFactory::getDbo();
+		$user = Factory::getUser();
+		$access = $user->getAuthorisedViewLevels();
+
+		$db = Factory::getDbo();
+
+		$nullDate = $db->getNullDate();
+		$now = time();
+		$maximum = $params->get('count', 3);
 
 		$query = $db->getQuery(true);
 
@@ -298,9 +315,9 @@ class modarticlesthumbnailsHelper
 				->from('#__content AS a')
 				->where('a.id != ' . (int) $id)
 				->where('a.state = 1')
-				->where('a.access IN (' . $groups . ')');
+				->where('a.access IN (' . implode(',', $access) . ')');
 
-			$wheres = array();
+				$wheres = array();
 
 			foreach ($likes as $keyword)
 			{
@@ -308,13 +325,23 @@ class modarticlesthumbnailsHelper
 			}
 
 			$query->where('(' . implode(' OR ', $wheres) . ')')
-				->where('(a.publish_up = ' . $db->quote($nullDate) . ' OR a.publish_up <= ' . $db->quote($now) . ')')
-				->where('(a.publish_down = ' . $db->quote($nullDate) . ' OR a.publish_down >= ' . $db->quote($now) . ')');
+				->where('(a.publish_up = ' . $db->quote($nullDate) . ' OR a.publish_up >= ' . $db->quote($now) . ')')
+				->where('(a.publish_down = ' . $db->quote($nullDate) . ' OR a.publish_down <= ' . $db->quote($now) . ')');
 
 			// Filter by language
 			if (JLanguageMultilang::isEnabled())
 			{
 				$query->where('a.language in (' . $db->quote(JFactory::getLanguage()->getTag()) . ',' . $db->quote('*') . ')');
+			}
+
+			// Ordering
+			if ($params->get('ordering') == 'random')
+			{
+				$query->order(JFactory::getDbo()->getQuery(true)->Rand());
+			}
+			else
+			{
+				$query->order('a.' . $params->get('ordering', 'publish_up') . ' ' . $params->get('direction', 'DESC'));
 			}
 
 			$db->setQuery($query, 0, $maximum);
